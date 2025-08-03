@@ -130,41 +130,61 @@ const Dashboard = () => {
           </div>
           <div className="grid gap-4">
             {projects.map(p => (
-              <div key={p.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                <h3 className="font-semibold text-gray-900 mb-2">{p.name}</h3>
-                <div className="flex space-x-2">
-                  <button 
-                    onClick={() => nav(`/define-rules/${p.id}`)}
-                    className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors duration-200 text-sm"
-                  >
-                    Rules
-                  </button>
-                  <button 
-                    onClick={() => nav(`/target/${p.id}`)}
-                    className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors duration-200 text-sm"
-                  >
-                    Fill Survey
-                  </button>
-                  <button 
-                    onClick={() => nav(`/results/${p.id}`)}
-                    className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors duration-200 text-sm"
-                  >
-                    View Results
-                  </button>
+              <div key={p.id} className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 text-lg mb-1">{p.name}</h3>
+                    <p className="text-sm text-gray-500">
+                      {p.modules.length} modules
+                    </p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button 
+                      onClick={() => nav(`/project-view/${p.id}`)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 font-medium text-sm"
+                    >
+                      View & Answer
+                    </button>
+                    <button 
+                      onClick={() => nav(`/project-answers/${p.id}`)}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 font-medium text-sm"
+                    >
+                      View Answers
+                    </button>
+                    <button 
+                      onClick={() => nav(`/create-project?edit=${p.id}`)}
+                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 font-medium text-sm"
+                    >
+                      Edit
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
+            {projects.length === 0 && (
+              <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 text-center">
+                <div className="text-gray-400 text-6xl mb-4">📁</div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No projects yet</h3>
+                <p className="text-gray-500 mb-4">Create your first project to get started</p>
+                <button 
+                  onClick={() => nav("/create-project")}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 font-medium"
+                >
+                  Create Project
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-800">Modules</h2>
+            <h2 className="text-xl font-semibold text-gray-800">Independent Modules</h2>
             <button 
               onClick={() => nav("/create-module")} 
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 font-medium"
             >
-              ➕ Create Module
+              ➕ New Module
             </button>
           </div>
           <div className="grid gap-4">

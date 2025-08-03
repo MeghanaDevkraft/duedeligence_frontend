@@ -1,12 +1,13 @@
-import React, { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { SurveyCreator, SurveyCreatorComponent } from "survey-creator-react";
-import { QuestionFactory, PageModel, Serializer } from "survey-core";
+import { QuestionFactory, PageModel } from "survey-core";
 import "survey-core/survey-core.min.css";
 import "survey-creator-core/survey-creator-core.min.css";
 import { registerCreatorTheme } from "survey-creator-core";
 import SurveyCreatorTheme from "survey-creator-core/themes";
+import ConditionBuilder from "../components/ConditionBuilder";
 
 registerCreatorTheme(SurveyCreatorTheme);
 
@@ -23,18 +24,37 @@ const CreateProject = () => {
   const [editingModuleId, setEditingModuleId] = useState<string | null>(null);
   const [creator, setCreator] = useState<SurveyCreator | null>(null);
   const [showPopup, setShowPopup] = useState(false);
+  const [showConditionBuilder, setShowConditionBuilder] = useState(false);
   const [addQuestionContext, setAddQuestionContext] = useState<{
     page: PageModel;
     index: number;
   } | null>(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const creatorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     axios.get("/modules").then((res) => {
       setAvailableModules(res.data);
     });
-  }, []);
+
+    // Check if editing existing project
+    const editProjectId = searchParams.get('edit');
+    if (editProjectId) {
+      loadProjectForEdit(editProjectId);
+    }
+  }, [searchParams]);
+
+  const loadProjectForEdit = async (projectId: string) => {
+    try {
+      const response = await axios.get(`/projects/${projectId}`);
+      const project = response.data;
+      setProjectName(project.name);
+      setSelectedModules(project.modules.map((m: any) => m.module));
+    } catch (error) {
+      console.error("Error loading project for edit:", error);
+    }
+  };
 
   const handleAddModule = (mod: Module) => {
     if (selectedModules.find((m) => m.id === mod.id)) return;
@@ -47,13 +67,13 @@ const CreateProject = () => {
     if (!mod) return;
 
     const creatorInstance = new SurveyCreator({
-      showLogicTab: false,
+      showLogicTab: true,
       showThemeTab: false,
       showJSONEditorTab: false,
       showTranslationTab: false,
       showPagesToolbox: false,
       showHeader: false,
-      showToolbox: false,
+      showToolbox: true,
       isAutoSave: false
     });
 
@@ -66,6 +86,30 @@ const CreateProject = () => {
 
     setCreator(creatorInstance);
     setEditingModuleId(modId);
+  };
+
+  const handleCreateNewModule = () => {
+    navigate("/create-module");
+  };
+
+  const handleConditionSave = (condition: string) => {
+    if (!creator || !editingModuleId) return;
+
+    // Add condition to the current module's survey
+    const currentSurvey = creator.JSON;
+    if (currentSurvey.pages && currentSurvey.pages[0] && currentSurvey.pages[0].elements) {
+      // Add condition to the first element or create a condition field
+      if (currentSurvey.pages[0].elements.length > 0) {
+        currentSurvey.pages[0].elements[0].visibleIf = condition;
+      }
+    }
+
+    // Update the selectedModules state with the modified survey
+    setSelectedModules(prev =>
+      prev.map(m => m.id === editingModuleId ? { ...m, surveyJson: currentSurvey } : m)
+    );
+
+    setShowConditionBuilder(false);
   };
 
   // Add event listeners after the creator is mounted
@@ -218,14 +262,23 @@ const CreateProject = () => {
     }
 
     try {
-      const response = await axios.post("/projects", {
+      const editProjectId = searchParams.get('edit');
+      const projectData = {
         name: projectName,
         modules: selectedModules.map(m => ({
           moduleId: m.id,
           surveyJson: m.surveyJson
         }))
-      });
-      alert("Project created successfully!");
+      };
+
+      if (editProjectId) {
+        await axios.put(`/projects/${editProjectId}`, projectData);
+        alert("Project updated successfully!");
+      } else {
+        await axios.post("/projects", projectData);
+        alert("Project created successfully!");
+      }
+      
       navigate("/");
     } catch (err: any) {
       console.error("Save failed:", err);
@@ -254,7 +307,7 @@ const CreateProject = () => {
             onClick={handleSaveProject}
             className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 shadow-sm"
           >
-            Save Project
+            {searchParams.get('edit') ? 'Update Project' : 'Save Project'}
           </button>
         </div>
       </div>
@@ -263,12 +316,20 @@ const CreateProject = () => {
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Modules in this project</h2>
-          <button
-            onClick={() => document.getElementById("addModuleModal")?.classList.remove("hidden")}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          >
-            ➕ Add Module
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleCreateNewModule}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
+            >
+              ➕ New Module
+            </button>
+            <button
+              onClick={() => document.getElementById("addModuleModal")?.classList.remove("hidden")}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+            >
+              ➕ Add Existing Module
+            </button>
+          </div>
         </div>
 
         {selectedModules.length === 0 ? (
@@ -286,12 +347,20 @@ const CreateProject = () => {
                     {mod.surveyJson?.pages?.[0]?.elements?.length || 0} questions
                   </p>
                 </div>
-                <button
-                  onClick={() => handleEditModule(mod.id)}
-                  className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                >
-                  ✏️ Edit
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEditModule(mod.id)}
+                    className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    ✏️ Edit
+                  </button>
+                  <button
+                    onClick={() => setSelectedModules(prev => prev.filter(m => m.id !== mod.id))}
+                    className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                  >
+                    🗑️ Remove
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -309,15 +378,23 @@ const CreateProject = () => {
             <h3 className="font-semibold">
               Editing: {selectedModules.find(m => m.id === editingModuleId)?.name}
             </h3>
-            <button
-              onClick={() => {
-                setEditingModuleId(null);
-                setCreator(null);
-              }}
-              className="text-red-500 hover:text-red-700"
-            >
-              ✖ Close
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowConditionBuilder(true)}
+                className="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 text-sm"
+              >
+                Add Conditions
+              </button>
+              <button
+                onClick={() => {
+                  setEditingModuleId(null);
+                  setCreator(null);
+                }}
+                className="text-red-500 hover:text-red-700"
+              >
+                ✖ Close
+              </button>
+            </div>
           </div>
           <SurveyCreatorComponent creator={creator} />
         </div>
@@ -494,6 +571,17 @@ const CreateProject = () => {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Condition Builder */}
+      {showConditionBuilder && editingModuleId && (
+        <ConditionBuilder
+          isOpen={showConditionBuilder}
+          onClose={() => setShowConditionBuilder(false)}
+          onSave={handleConditionSave}
+          availableModules={selectedModules}
+          currentModuleId={editingModuleId}
+        />
       )}
     </div>
   );

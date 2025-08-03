@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { SurveyCreator, SurveyCreatorComponent } from "survey-creator-react";
 import "survey-core/survey-core.min.css";
 import "survey-creator-core/survey-creator-core.min.css";
@@ -6,7 +6,7 @@ import { registerCreatorTheme } from "survey-creator-core";
 import SurveyCreatorTheme from "survey-creator-core/themes";
 import axios from "axios";
 import { useNavigate, useParams } from "react-router-dom";
-import { Serializer, QuestionFactory, Question, PageModel } from "survey-core";
+import { QuestionFactory, PageModel } from "survey-core";
 
 registerCreatorTheme(SurveyCreatorTheme);
 
