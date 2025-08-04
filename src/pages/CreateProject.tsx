@@ -15,6 +15,7 @@ interface Module {
   id: string;
   name: string;
   surveyJson: any;
+  condition?: string;
 }
 
 const CreateProject = () => {
@@ -29,14 +30,13 @@ const CreateProject = () => {
     page: PageModel;
     index: number;
   } | null>(null);
+  const [showAddModuleModal, setShowAddModuleModal] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const creatorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    axios.get("/modules").then((res) => {
-      setAvailableModules(res.data);
-    });
+    loadAvailableModules();
 
     // Check if editing existing project
     const editProjectId = searchParams.get('edit');
@@ -44,6 +44,15 @@ const CreateProject = () => {
       loadProjectForEdit(editProjectId);
     }
   }, [searchParams]);
+
+  const loadAvailableModules = async () => {
+    try {
+      const response = await axios.get("/modules");
+      setAvailableModules(response.data);
+    } catch (error) {
+      console.error("Error loading modules:", error);
+    }
+  };
 
   const loadProjectForEdit = async (projectId: string) => {
     try {
@@ -60,6 +69,7 @@ const CreateProject = () => {
     if (selectedModules.find((m) => m.id === mod.id)) return;
     const copiedSurvey = JSON.parse(JSON.stringify(mod.surveyJson));
     setSelectedModules([...selectedModules, { ...mod, surveyJson: copiedSurvey }]);
+    setShowAddModuleModal(false);
   };
 
   const handleEditModule = (modId: string) => {
@@ -74,7 +84,35 @@ const CreateProject = () => {
       showPagesToolbox: false,
       showHeader: false,
       showToolbox: true,
-      isAutoSave: false
+      isAutoSave: false,
+      allowDefaultToolboxItems: false
+    });
+
+    // Add custom question button
+    creatorInstance.toolbox.addItem({
+      name: "custom-question",
+      title: "Add Question",
+      iconName: "icon-add",
+      json: {
+        type: "custom-question",
+        name: "custom-question"
+      },
+      action: () => {
+        const survey = creatorInstance.survey;
+        let currentPage = survey.currentPage;
+        
+        if (!currentPage && survey.pages.length > 0) {
+          currentPage = survey.pages[0];
+        }
+        
+        if (currentPage) {
+          setAddQuestionContext({
+            page: currentPage,
+            index: currentPage.elements.length
+          });
+          setShowPopup(true);
+        }
+      }
     });
 
     creatorInstance.JSON = mod.surveyJson || {
@@ -95,132 +133,13 @@ const CreateProject = () => {
   const handleConditionSave = (condition: string) => {
     if (!creator || !editingModuleId) return;
 
-    // Add condition to the current module's survey
-    const currentSurvey = creator.JSON;
-    if (currentSurvey.pages && currentSurvey.pages[0] && currentSurvey.pages[0].elements) {
-      // Add condition to the first element or create a condition field
-      if (currentSurvey.pages[0].elements.length > 0) {
-        currentSurvey.pages[0].elements[0].visibleIf = condition;
-      }
-    }
-
-    // Update the selectedModules state with the modified survey
+    // Update the selectedModules state with the condition
     setSelectedModules(prev =>
-      prev.map(m => m.id === editingModuleId ? { ...m, surveyJson: currentSurvey } : m)
+      prev.map(m => m.id === editingModuleId ? { ...m, condition } : m)
     );
 
     setShowConditionBuilder(false);
   };
-
-  // Add event listeners after the creator is mounted
-  useEffect(() => {
-    if (!creator) return;
-
-    const handleClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      
-      // Check for various SurveyJS "Add Question" buttons
-      const isAddQuestionButton = 
-        target.closest('[data-sv-creator-toolbox-item]') ||
-        target.closest('.svc-toolbox__item') ||
-        target.closest('[data-sv-creator-add-question]') ||
-        target.closest('.svc-add-new-question') ||
-        target.closest('.svc-add-question') ||
-        target.closest('[title*="Add Question"]') ||
-        target.closest('[aria-label*="Add Question"]') ||
-        target.textContent?.includes('Add Question') ||
-        target.textContent?.includes('+') ||
-        target.textContent?.includes('Add') ||
-        target.closest('button[title*="question"]') ||
-        target.closest('button[aria-label*="question"]') ||
-        target.closest('.svc-toolbox__item--question') ||
-        target.closest('[data-sv-creator-toolbox-item="question"]') ||
-        target.closest('.svc-add-new-item-button__text');
-
-      if (isAddQuestionButton) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        
-        const survey = creator.survey;
-        let currentPage = survey.currentPage;
-        
-        if (!currentPage) {
-          if (survey.pages.length > 0) {
-            currentPage = survey.pages[0];
-          } else {
-            currentPage = survey.addNewPage("Page 1");
-          }
-        }
-        
-        if (currentPage) {
-          setAddQuestionContext({
-            page: currentPage,
-            index: currentPage.elements.length
-          });
-          setShowPopup(true);
-        }
-        
-        return false;
-      }
-    };
-
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      
-      const isAddQuestionButton = 
-        target.closest('[data-sv-creator-toolbox-item]') ||
-        target.closest('.svc-toolbox__item') ||
-        target.closest('[data-sv-creator-add-question]') ||
-        target.closest('.svc-add-new-question') ||
-        target.closest('.svc-add-question') ||
-        target.closest('[title*="Add Question"]') ||
-        target.closest('[aria-label*="Add Question"]') ||
-        target.textContent?.includes('Add Question') ||
-        target.textContent?.includes('+') ||
-        target.textContent?.includes('Add') ||
-        target.closest('button[title*="question"]') ||
-        target.closest('button[aria-label*="question"]') ||
-        target.closest('.svc-toolbox__item--question') ||
-        target.closest('[data-sv-creator-toolbox-item="question"]') ||
-        target.closest('.svc-add-new-item-button__text');
-
-      if (isAddQuestionButton) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        
-        const survey = creator.survey;
-        let currentPage = survey.currentPage;
-        
-        if (!currentPage) {
-          if (survey.pages.length > 0) {
-            currentPage = survey.pages[0];
-          } else {
-            currentPage = survey.addNewPage("Page 1");
-          }
-        }
-        
-        if (currentPage) {
-          setAddQuestionContext({
-            page: currentPage,
-            index: currentPage.elements.length
-          });
-          setShowPopup(true);
-        }
-        
-        return false;
-      }
-    };
-
-    document.addEventListener('click', handleClick, true);
-    document.addEventListener('mousedown', handleMouseDown, true);
-
-    return () => {
-      document.removeEventListener('click', handleClick, true);
-      document.removeEventListener('mousedown', handleMouseDown, true);
-    };
-  }, [creator]);
 
   const addQuestion = (type: "checkbox" | "radiogroup") => {
     if (!creator || !addQuestionContext) return;
@@ -267,7 +186,8 @@ const CreateProject = () => {
         name: projectName,
         modules: selectedModules.map(m => ({
           moduleId: m.id,
-          surveyJson: m.surveyJson
+          surveyJson: m.surveyJson,
+          condition: m.condition
         }))
       };
 
@@ -287,45 +207,47 @@ const CreateProject = () => {
   };
 
   return (
-    <div className="p-6 flex flex-col gap-4 relative">
+    <div className="p-6 flex flex-col gap-4 relative bg-gray-50 min-h-screen">
       {/* Project Name + Save */}
-      <div className="flex gap-4 items-center bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <div className="flex-1">
-          <label htmlFor="project-name" className="block text-sm font-medium text-gray-700 mb-2">
-            Project Name
-          </label>
-          <input
-            id="project-name"
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 text-gray-900 placeholder-gray-500"
-            placeholder="Enter project name"
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={handleSaveProject}
-            className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 shadow-sm"
-          >
-            {searchParams.get('edit') ? 'Update Project' : 'Save Project'}
-          </button>
+      <div className="enhanced-card">
+        <div className="flex gap-4 items-center">
+          <div className="flex-1">
+            <label htmlFor="project-name" className="block text-sm font-medium text-gray-700 mb-2">
+              Project Name
+            </label>
+            <input
+              id="project-name"
+              className="form-input"
+              placeholder="Enter project name"
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={handleSaveProject}
+              className="enhanced-button primary"
+            >
+              {searchParams.get('edit') ? 'Update Project' : 'Save Project'}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Modules Section */}
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+      <div className="enhanced-card">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">Modules in this project</h2>
+          <h2 className="text-xl font-semibold text-gray-900">Modules in this project</h2>
           <div className="flex gap-2">
             <button
               onClick={handleCreateNewModule}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
+              className="enhanced-button success"
             >
               ➕ New Module
             </button>
             <button
-              onClick={() => document.getElementById("addModuleModal")?.classList.remove("hidden")}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+              onClick={() => setShowAddModuleModal(true)}
+              className="enhanced-button primary"
             >
               ➕ Add Existing Module
             </button>
@@ -333,7 +255,11 @@ const CreateProject = () => {
         </div>
 
         {selectedModules.length === 0 ? (
-          <p className="text-gray-500">No modules added yet.</p>
+          <div className="text-center py-8">
+            <div className="text-gray-400 text-6xl mb-4">📁</div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No modules added yet</h3>
+            <p className="text-gray-500 mb-4">Add modules to your project to get started</p>
+          </div>
         ) : (
           <div className="space-y-3">
             {selectedModules.map((mod) => (
@@ -341,22 +267,27 @@ const CreateProject = () => {
                 key={mod.id}
                 className="p-4 bg-gray-50 border rounded-lg flex justify-between items-center"
               >
-                <div>
+                <div className="flex-1">
                   <h3 className="font-medium text-gray-800">{mod.name}</h3>
                   <p className="text-sm text-gray-500">
                     {mod.surveyJson?.pages?.[0]?.elements?.length || 0} questions
                   </p>
+                  {mod.condition && (
+                    <p className="text-xs text-blue-600 mt-1">
+                      Condition: {mod.condition}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleEditModule(mod.id)}
-                    className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    className="enhanced-button primary"
                   >
                     ✏️ Edit
                   </button>
                   <button
                     onClick={() => setSelectedModules(prev => prev.filter(m => m.id !== mod.id))}
-                    className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                    className="enhanced-button secondary"
                   >
                     🗑️ Remove
                   </button>
@@ -371,7 +302,7 @@ const CreateProject = () => {
       {editingModuleId && creator && (
         <div
           ref={creatorRef}
-          className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
+          className="enhanced-card"
           style={{ height: "75vh" }}
         >
           <div className="p-4 border-b flex justify-between items-center">
@@ -381,7 +312,7 @@ const CreateProject = () => {
             <div className="flex gap-2">
               <button
                 onClick={() => setShowConditionBuilder(true)}
-                className="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 text-sm"
+                className="enhanced-button purple"
               >
                 Add Conditions
               </button>
@@ -390,7 +321,7 @@ const CreateProject = () => {
                   setEditingModuleId(null);
                   setCreator(null);
                 }}
-                className="text-red-500 hover:text-red-700"
+                className="enhanced-button secondary"
               >
                 ✖ Close
               </button>
@@ -401,147 +332,87 @@ const CreateProject = () => {
       )}
 
       {/* Module Selection Modal */}
-      <div
-        id="addModuleModal"
-        className="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50"
-      >
-        <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[80vh] overflow-auto relative">
-          <h2 className="text-xl font-bold mb-4">Select a Module to Add</h2>
-          <button
-            onClick={() => document.getElementById("addModuleModal")?.classList.add("hidden")}
-            className="absolute top-3 right-4 text-gray-500 hover:text-gray-700 text-xl"
-          >
-            ×
-          </button>
-          {availableModules.map((mod) => (
-            <div
-              key={mod.id}
-              className="p-3 border-b flex justify-between items-center hover:bg-gray-50"
+      {showAddModuleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[80vh] overflow-auto relative">
+            <h2 className="text-xl font-bold mb-4">Select a Module to Add</h2>
+            <button
+              onClick={() => setShowAddModuleModal(false)}
+              className="absolute top-3 right-4 text-gray-500 hover:text-gray-700 text-xl"
             >
-              <div>
-                <h4 className="font-medium">{mod.name}</h4>
-                <p className="text-sm text-gray-500">
-                  {mod.surveyJson?.pages?.[0]?.elements?.length || 0} questions
-                </p>
+              ×
+            </button>
+            {availableModules.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-gray-400 text-4xl mb-4">📝</div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No modules available</h3>
+                <p className="text-gray-500 mb-4">Create some modules first</p>
+                <button
+                  onClick={() => {
+                    setShowAddModuleModal(false);
+                    handleCreateNewModule();
+                  }}
+                  className="enhanced-button primary"
+                >
+                  Create Module
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  handleAddModule(mod);
-                  document.getElementById("addModuleModal")?.classList.add("hidden");
-                }}
-                className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm"
-              >
-                Add
-              </button>
-            </div>
-          ))}
+            ) : (
+              availableModules.map((mod) => (
+                <div
+                  key={mod.id}
+                  className="p-3 border-b flex justify-between items-center hover:bg-gray-50"
+                >
+                  <div>
+                    <h4 className="font-medium">{mod.name}</h4>
+                    <p className="text-sm text-gray-500">
+                      {mod.surveyJson?.pages?.[0]?.elements?.length || 0} questions
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleAddModule(mod)}
+                    className="enhanced-button primary"
+                  >
+                    Add
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Custom Question Popup */}
       {showPopup && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 9999
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '32px',
-            borderRadius: '8px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-            maxWidth: '400px',
-            width: '100%',
-            margin: '0 16px'
-          }}>
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <h3 style={{
-                fontSize: '20px',
-                fontWeight: 'bold',
-                color: '#1f2937',
-                marginBottom: '8px'
-              }}>
-                Choose Question Type
-              </h3>
-              <p style={{
-                color: '#6b7280',
-                fontSize: '14px'
-              }}>
-                Select the type of question you want to add
-              </p>
-            </div>
+        <div className="custom-popup-overlay">
+          <div className="custom-popup-content">
+            <h3 className="custom-popup-title">
+              Choose Question Type
+            </h3>
+            <p className="custom-popup-subtitle">
+              Select the type of question you want to add
+            </p>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="custom-popup-buttons">
               <button
                 onClick={() => addQuestion("checkbox")}
-                style={{
-                  width: '100%',
-                  backgroundColor: '#3b82f6',
-                  color: 'white',
-                  padding: '16px 24px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '12px',
-                  fontSize: '16px',
-                  fontWeight: '500',
-                  transition: 'background-color 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+                className="custom-popup-button blue"
               >
-                <div style={{
-                  width: '24px',
-                  height: '24px',
-                  border: '2px solid white',
-                  borderRadius: '4px'
-                }}></div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontWeight: '600' }}>Multiple Choice</div>
-                  <div style={{ fontSize: '14px', opacity: 0.9 }}>Allow multiple selections</div>
+                <div className="question-icon checkbox"></div>
+                <div className="text-left">
+                  <div className="font-semibold">Multiple Choice</div>
+                  <div className="text-sm opacity-90">Allow multiple selections</div>
                 </div>
               </button>
               
               <button
                 onClick={() => addQuestion("radiogroup")}
-                style={{
-                  width: '100%',
-                  backgroundColor: '#10b981',
-                  color: 'white',
-                  padding: '16px 24px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '12px',
-                  fontSize: '16px',
-                  fontWeight: '500',
-                  transition: 'background-color 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#059669'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
+                className="custom-popup-button green"
               >
-                <div style={{
-                  width: '24px',
-                  height: '24px',
-                  border: '2px solid white',
-                  borderRadius: '50%'
-                }}></div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontWeight: '600' }}>Single Choice</div>
-                  <div style={{ fontSize: '14px', opacity: 0.9 }}>Allow only one selection</div>
+                <div className="question-icon radio"></div>
+                <div className="text-left">
+                  <div className="font-semibold">Single Choice</div>
+                  <div className="text-sm opacity-90">Allow only one selection</div>
                 </div>
               </button>
             </div>
@@ -551,21 +422,7 @@ const CreateProject = () => {
                 setShowPopup(false);
                 setAddQuestionContext(null);
               }}
-              style={{
-                marginTop: '24px',
-                width: '100%',
-                color: '#6b7280',
-                fontSize: '14px',
-                fontWeight: '500',
-                padding: '8px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                cursor: 'pointer',
-                borderRadius: '4px',
-                transition: 'background-color 0.2s'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              className="custom-popup-cancel"
             >
               Cancel
             </button>

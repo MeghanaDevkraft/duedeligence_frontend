@@ -13,6 +13,7 @@ interface Project {
       id: string;
       name: string;
       surveyJson: any;
+      condition?: string;
     };
   }[];
 }
@@ -32,6 +33,7 @@ const ProjectView = () => {
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [visibleModules, setVisibleModules] = useState<string[]>([]);
   const [completedModules, setCompletedModules] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -43,12 +45,15 @@ const ProjectView = () => {
 
   const loadProject = async () => {
     try {
+      setLoading(true);
       const response = await axios.get(`/projects/${projectId}`);
       setProject(response.data);
       // Initially show all modules
       setVisibleModules(response.data.modules.map((m: any) => m.module.id));
     } catch (error) {
       console.error("Error loading project:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -82,6 +87,17 @@ const ProjectView = () => {
         }
       });
 
+      // Pre-populate answers if they exist
+      const moduleAnswers = answers.filter(a => a.moduleId === moduleId);
+      moduleAnswers.forEach(answer => {
+        try {
+          const value = JSON.parse(answer.answerValue);
+          surveyModel.setValue(answer.questionId, value);
+        } catch {
+          surveyModel.setValue(answer.questionId, answer.answerValue);
+        }
+      });
+
       setSurvey(surveyModel);
     }
   };
@@ -90,6 +106,7 @@ const ProjectView = () => {
     if (!selectedModule) return;
 
     try {
+      console.log("Saving answer:", { questionId, value, moduleId: selectedModule });
       const answerValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
       
       // Update local state
@@ -110,13 +127,17 @@ const ProjectView = () => {
       });
 
       // Save to backend
-      await axios.post(`/responses/${projectId}`, {
+      const response = await axios.post(`/responses/single`, {
+        projectId,
         questionId,
         answerValue,
         moduleId: selectedModule
       });
+      
+      console.log("Answer saved successfully:", response.data);
     } catch (error) {
       console.error("Error saving answer:", error);
+      alert("Failed to save answer. Please try again.");
     }
   };
 
@@ -162,21 +183,9 @@ const ProjectView = () => {
     const newVisibleModules = project.modules.filter(moduleData => {
       const module = moduleData.module;
       
-      // Check if module has visibility conditions
-      if (module.surveyJson?.pages?.[0]?.elements) {
-        const hasConditions = module.surveyJson.pages[0].elements.some((element: any) => 
-          element.visibleIf || element.condition
-        );
-        
-        if (hasConditions) {
-          // Evaluate conditions for this module
-          return module.surveyJson.pages[0].elements.every((element: any) => {
-            if (element.visibleIf) {
-              return evaluateCustomCondition(element.visibleIf);
-            }
-            return true;
-          });
-        }
+      // Check if module has a condition
+      if (module.condition) {
+        return evaluateCustomCondition(module.condition);
       }
       
       return true;
@@ -193,10 +202,25 @@ const ProjectView = () => {
     navigate(`/project-answers/${projectId}`);
   };
 
+  const getModuleProgress = (moduleId: string) => {
+    const moduleAnswers = answers.filter(a => a.moduleId === moduleId);
+    const module = project?.modules.find(m => m.module.id === moduleId);
+    const totalQuestions = module?.module.surveyJson?.pages?.[0]?.elements?.length || 0;
+    return totalQuestions > 0 ? (moduleAnswers.length / totalQuestions) * 100 : 0;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-xl text-gray-600">Loading project...</div>
+      </div>
+    );
+  }
+
   if (!project) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-xl">Loading project...</div>
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-xl text-gray-600">Project not found</div>
       </div>
     );
   }
@@ -205,7 +229,7 @@ const ProjectView = () => {
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
+        <div className="enhanced-card mb-6">
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{project.name}</h1>
@@ -214,13 +238,13 @@ const ProjectView = () => {
             <div className="flex gap-3">
               <button
                 onClick={viewAnswers}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
+                className="enhanced-button success"
               >
                 View Answers
               </button>
               <button
                 onClick={() => navigate("/")}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200"
+                className="enhanced-button secondary"
               >
                 Back to Dashboard
               </button>
@@ -231,7 +255,7 @@ const ProjectView = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Modules List */}
           <div className="lg:col-span-1">
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+            <div className="enhanced-card">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Modules</h2>
               <div className="space-y-3">
                 {project.modules.map((moduleData) => {
@@ -239,6 +263,7 @@ const ProjectView = () => {
                   const isVisible = visibleModules.includes(module.id);
                   const isCompleted = completedModules.includes(module.id);
                   const isSelected = selectedModule === module.id;
+                  const progress = getModuleProgress(module.id);
 
                   if (!isVisible) return null;
 
@@ -254,8 +279,8 @@ const ProjectView = () => {
                       }`}
                       onClick={() => handleModuleSelect(module.id)}
                     >
-                      <div className="flex items-center justify-between">
-                        <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex-1">
                           <h3 className="font-medium text-gray-900">{module.name}</h3>
                           <p className="text-sm text-gray-500">
                             {module.surveyJson?.pages?.[0]?.elements?.length || 0} questions
@@ -263,12 +288,23 @@ const ProjectView = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           {isCompleted && (
-                            <span className="text-green-600">✓</span>
+                            <span className="text-green-600 text-lg">✓</span>
                           )}
                           {isSelected && (
-                            <span className="text-blue-600">→</span>
+                            <span className="text-blue-600 text-lg">→</span>
                           )}
                         </div>
+                      </div>
+                      
+                      {/* Progress Bar */}
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${progress}%` }}
+                        ></div>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {Math.round(progress)}% complete
                       </div>
                     </div>
                   );
@@ -280,26 +316,26 @@ const ProjectView = () => {
           {/* Survey Area */}
           <div className="lg:col-span-2">
             {selectedModule && survey ? (
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+              <div className="enhanced-card">
                 <div className="mb-4">
                   <h2 className="text-xl font-semibold text-gray-900">
                     {project.modules.find(m => m.module.id === selectedModule)?.module.name}
                   </h2>
                 </div>
-                                 <div className="survey-container">
-                   <Survey model={survey} />
-                 </div>
+                <div className="survey-container">
+                  <Survey model={survey} />
+                </div>
                 <div className="mt-6 flex justify-between">
                   <button
                     onClick={() => markModuleComplete(selectedModule)}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
+                    className="enhanced-button success"
                   >
                     Mark Complete
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="bg-white p-12 rounded-lg shadow-sm border border-gray-200 text-center">
+              <div className="enhanced-card text-center">
                 <div className="text-gray-400 text-6xl mb-4">📋</div>
                 <h3 className="text-xl font-medium text-gray-900 mb-2">Select a Module</h3>
                 <p className="text-gray-500">

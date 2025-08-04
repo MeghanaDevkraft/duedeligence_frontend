@@ -7,6 +7,7 @@ import SurveyCreatorTheme from "survey-creator-core/themes";
 import axios from "axios";
 import { useNavigate, useParams } from "react-router-dom";
 import { QuestionFactory, PageModel } from "survey-core";
+import ConditionBuilder from "../components/ConditionBuilder";
 
 registerCreatorTheme(SurveyCreatorTheme);
 
@@ -18,31 +19,72 @@ const CreateModule = () => {
     page: PageModel;
     index: number;
   } | null>(null);
+  const [availableModules, setAvailableModules] = useState<Array<{id: string, name: string, surveyJson: any}>>([]);
+  const [moduleCondition, setModuleCondition] = useState<string>("");
+  const [showConditionBuilder, setShowConditionBuilder] = useState(false);
   const { id } = useParams();
   const navigate = useNavigate();
   const creatorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    loadAvailableModules();
+  }, []);
+
+  const loadAvailableModules = async () => {
+    try {
+      const response = await axios.get("/modules");
+      setAvailableModules(response.data);
+    } catch (error) {
+      console.error("Error loading modules:", error);
+    }
+  };
+
+  useEffect(() => {
     const creatorInstance = new SurveyCreator({
-      showLogicTab: false,
+      showLogicTab: true,
       showThemeTab: false,
       showJSONEditorTab: false,
       showTranslationTab: false,
       showPagesToolbox: false,
       showHeader: false,
-      showToolbox: false,
+      showToolbox: true,
       isAutoSave: false
     });
+
+    // Override the default add question functionality
+    const originalAddQuestion = creatorInstance.toolbox.addItem;
+    creatorInstance.toolbox.addItem = function(item: any) {
+      if (item.name === "question" || item.name === "checkbox" || item.name === "radiogroup") {
+        // Intercept the add question action
+        const survey = creatorInstance.survey;
+        let currentPage = survey.currentPage;
+        
+        if (!currentPage && survey.pages.length > 0) {
+          currentPage = survey.pages[0];
+        }
+        
+        if (currentPage) {
+          setAddQuestionContext({
+            page: currentPage,
+            index: currentPage.elements.length
+          });
+          setShowPopup(true);
+          return; // Don't add the question immediately
+        }
+      }
+      // Call original function for other items
+      return originalAddQuestion.call(this, item);
+    };
 
     // Load existing survey if editing
     if (id) {
       axios.get(`/modules/${id}`).then((res) => {
         console.log("Loading existing module:", res.data);
         setName(res.data.name || "");
+        setModuleCondition(res.data.condition || "");
         if (res.data.surveyJson) {
           creatorInstance.JSON = res.data.surveyJson;
         } else {
-          // Initialize with empty survey structure
           creatorInstance.JSON = {
             pages: [{
               name: "page1",
@@ -52,7 +94,6 @@ const CreateModule = () => {
         }
       }).catch((error) => {
         console.error("Error loading module:", error);
-        // Initialize with empty survey structure if loading fails
         creatorInstance.JSON = {
           pages: [{
             name: "page1",
@@ -61,7 +102,6 @@ const CreateModule = () => {
         };
       });
     } else {
-      // Initialize with empty survey structure for new modules
       creatorInstance.JSON = {
         pages: [{
           name: "page1",
@@ -73,53 +113,41 @@ const CreateModule = () => {
     setCreator(creatorInstance);
 
     return () => {
-      // Cleanup if needed
+      // Cleanup
     };
   }, [id]);
 
-  // Add event listeners after the creator is mounted
+  // Add event listeners to intercept SurveyJS add question buttons
   useEffect(() => {
     if (!creator) return;
 
-    const handleClick = (event: MouseEvent) => {
+    const handleAddQuestionClick = (event: Event) => {
       const target = event.target as HTMLElement;
       
-      // Check for various SurveyJS "Add Question" buttons
+      // Check if this is a SurveyJS add question button
       const isAddQuestionButton = 
-        target.closest('[data-sv-creator-toolbox-item]') ||
-        target.closest('.svc-toolbox__item') ||
+        target.closest('[data-sv-creator-toolbox-item="question"]') ||
+        target.closest('.svc-toolbox__item--question') ||
         target.closest('[data-sv-creator-add-question]') ||
         target.closest('.svc-add-new-question') ||
         target.closest('.svc-add-question') ||
-        target.closest('[title*="Add Question"]') ||
-        target.closest('[aria-label*="Add Question"]') ||
-        target.textContent?.includes('Add Question') ||
-        target.textContent?.includes('+') ||
-        target.textContent?.includes('Add') ||
-        target.closest('button[title*="question"]') ||
-        target.closest('button[aria-label*="question"]') ||
-        target.closest('.svc-toolbox__item--question') ||
-        target.closest('[data-sv-creator-toolbox-item="question"]') ||
-        target.closest('.svc-add-new-item-button__text');
+        target.closest('button[title*="Add Question"]') ||
+        target.closest('button[aria-label*="Add Question"]') ||
+        target.closest('.svc-add-new-item-button__text') ||
+        (target.closest('[data-sv-creator-toolbox-item]') && target.textContent?.includes('Question')) ||
+        (target.closest('.svc-toolbox__item') && target.textContent?.includes('Question')) ||
+        (target.closest('.svc-toolbox__item') && target.textContent?.includes('Add'));
 
       if (isAddQuestionButton) {
-        console.log("Add question button clicked, preventing default behavior");
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
         
-        // Get the current page or create one if it doesn't exist
         const survey = creator.survey;
         let currentPage = survey.currentPage;
         
-        // If no current page, get the first page or create one
-        if (!currentPage) {
-          if (survey.pages.length > 0) {
-            currentPage = survey.pages[0];
-          } else {
-            // Create a new page if none exists
-            currentPage = survey.addNewPage("Page 1");
-          }
+        if (!currentPage && survey.pages.length > 0) {
+          currentPage = survey.pages[0];
         }
         
         if (currentPage) {
@@ -134,66 +162,38 @@ const CreateModule = () => {
       }
     };
 
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      
-      // Also check for mousedown events on add question buttons
-      const isAddQuestionButton = 
-        target.closest('[data-sv-creator-toolbox-item]') ||
-        target.closest('.svc-toolbox__item') ||
-        target.closest('[data-sv-creator-add-question]') ||
-        target.closest('.svc-add-new-question') ||
-        target.closest('.svc-add-question') ||
-        target.closest('[title*="Add Question"]') ||
-        target.closest('[aria-label*="Add Question"]') ||
-        target.textContent?.includes('Add Question') ||
-        target.textContent?.includes('+') ||
-        target.textContent?.includes('Add') ||
-        target.closest('button[title*="question"]') ||
-        target.closest('button[aria-label*="question"]') ||
-        target.closest('.svc-toolbox__item--question') ||
-        target.closest('[data-sv-creator-toolbox-item="question"]') ||
-        target.closest('.svc-add-new-item-button__text');
-
-      if (isAddQuestionButton) {
-        console.log("Add question button mousedown, preventing default behavior");
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-        
-        // Get the current page or create one if it doesn't exist
-        const survey = creator.survey;
-        let currentPage = survey.currentPage;
-        
-        // If no current page, get the first page or create one
-        if (!currentPage) {
-          if (survey.pages.length > 0) {
-            currentPage = survey.pages[0];
-          } else {
-            // Create a new page if none exists
-            currentPage = survey.addNewPage("Page 1");
+    // Use MutationObserver to catch dynamically added SurveyJS elements
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const element = node as Element;
+            
+            // Look for SurveyJS add question buttons
+            const addQuestionButtons = element.querySelectorAll(
+              '[data-sv-creator-toolbox-item="question"], .svc-toolbox__item--question, [data-sv-creator-add-question], .svc-add-new-question, .svc-add-question, button[title*="Add Question"], button[aria-label*="Add Question"], .svc-add-new-item-button__text'
+            );
+            
+            addQuestionButtons.forEach(button => {
+              button.addEventListener('click', handleAddQuestionClick);
+            });
           }
-        }
-        
-        if (currentPage) {
-          setAddQuestionContext({
-            page: currentPage,
-            index: currentPage.elements.length
-          });
-          setShowPopup(true);
-        }
-        
-        return false;
-      }
-    };
+        });
+      });
+    });
 
-    // Add event listeners with capture phase to intercept early
-    document.addEventListener('click', handleClick, true);
-    document.addEventListener('mousedown', handleMouseDown, true);
+    // Start observing
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    // Add global event listener
+    document.addEventListener('click', handleAddQuestionClick, true);
 
     return () => {
-      document.removeEventListener('click', handleClick, true);
-      document.removeEventListener('mousedown', handleMouseDown, true);
+      document.removeEventListener('click', handleAddQuestionClick, true);
+      observer.disconnect();
     };
   }, [creator]);
 
@@ -206,24 +206,20 @@ const CreateModule = () => {
     try {
       console.log("Adding question of type:", type);
       
-      // Create a new question using QuestionFactory
       const questionName = `question_${Date.now()}`;
       const newQuestion = QuestionFactory.Instance.createQuestion(type, questionName);
       
-      // Set the properties
       newQuestion.title = type === "checkbox" ? "Multiple Choice Question" : "Single Choice Question";
       newQuestion.choices = ["Option 1", "Option 2", "Option 3"];
       newQuestion.isRequired = true;
 
       console.log("Created question:", newQuestion);
 
-      // Add to the page at the correct position
       addQuestionContext.page.addElement(newQuestion, addQuestionContext.index);
 
       console.log("Question added successfully");
       console.log("Current survey JSON:", creator.JSON);
 
-      // Reset and close popup
       setAddQuestionContext(null);
       setShowPopup(false);
     } catch (error) {
@@ -243,22 +239,22 @@ const CreateModule = () => {
     }
 
     const surveyJson = creator.JSON;
-    console.log("Saving module:", { name, surveyJson });
+    console.log("Saving module:", { name, surveyJson, moduleCondition });
 
     try {
       if (id) {
-        // Update existing module
         const response = await axios.put(`/modules/${id}`, { 
           name, 
-          surveyJson 
+          surveyJson,
+          condition: moduleCondition
         });
         console.log("Module updated successfully:", response.data);
         alert("Module updated successfully!");
       } else {
-        // Create new module
         const response = await axios.post("/modules", { 
           name, 
-          surveyJson 
+          surveyJson,
+          condition: moduleCondition
         });
         console.log("Module created successfully:", response.data);
         alert("Module created successfully!");
@@ -272,50 +268,51 @@ const CreateModule = () => {
   };
 
   return (
-    <div className="p-6 flex flex-col gap-4 relative">
+    <div className="p-6 flex flex-col gap-4 relative bg-gray-50 min-h-screen">
       {/* Module Name + Save */}
-      <div className="flex gap-4 items-center bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <div className="flex-1">
-          <label htmlFor="module-name" className="block text-sm font-medium text-gray-700 mb-2">
-            Module Name
-          </label>
-          <input
-            id="module-name"
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 text-gray-900 placeholder-gray-500"
-            placeholder="Enter module name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={handleSave}
-            className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 shadow-sm"
-          >
-            Save Module
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                const response = await axios.get("/modules");
-                console.log("API test successful:", response.data);
-                alert("API connection working!");
-              } catch (err) {
-                console.error("API test failed:", err);
-                alert("API connection failed!");
-              }
-            }}
-            className="px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all duration-200 shadow-sm"
-          >
-            Test API
-          </button>
+      <div className="enhanced-card">
+        <div className="flex gap-4 items-center">
+          <div className="flex-1">
+            <label htmlFor="module-name" className="block text-sm font-medium text-gray-700 mb-2">
+              Module Name
+            </label>
+            <input
+              id="module-name"
+              className="form-input"
+              placeholder="Enter module name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowConditionBuilder(true)}
+              className="enhanced-button purple"
+            >
+              Module Conditions
+            </button>
+            <button
+              onClick={handleSave}
+              className="enhanced-button primary"
+            >
+              Save Module
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Module Condition Display */}
+      {moduleCondition && (
+        <div className="module-condition">
+          <h4>Module Visibility Condition</h4>
+          <p>{moduleCondition}</p>
+        </div>
+      )}
 
       {/* SurveyJS Canvas */}
       <div
         ref={creatorRef}
-        className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
+        className="enhanced-card"
         style={{
           height: "75vh",
         }}
@@ -325,108 +322,35 @@ const CreateModule = () => {
 
       {/* Custom Popup for Adding Question */}
       {showPopup && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 9999
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '32px',
-            borderRadius: '8px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-            maxWidth: '400px',
-            width: '100%',
-            margin: '0 16px'
-          }}>
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <h3 style={{
-                fontSize: '20px',
-                fontWeight: 'bold',
-                color: '#1f2937',
-                marginBottom: '8px'
-              }}>
-                Choose Question Type
-              </h3>
-              <p style={{
-                color: '#6b7280',
-                fontSize: '14px'
-              }}>
-                Select the type of question you want to add
-              </p>
-            </div>
+        <div className="custom-popup-overlay">
+          <div className="custom-popup-content">
+            <h3 className="custom-popup-title">
+              Choose Question Type
+            </h3>
+            <p className="custom-popup-subtitle">
+              Select the type of question you want to add
+            </p>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="custom-popup-buttons">
               <button
                 onClick={() => addQuestion("checkbox")}
-                style={{
-                  width: '100%',
-                  backgroundColor: '#3b82f6',
-                  color: 'white',
-                  padding: '16px 24px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '12px',
-                  fontSize: '16px',
-                  fontWeight: '500',
-                  transition: 'background-color 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+                className="custom-popup-button blue"
               >
-                <div style={{
-                  width: '24px',
-                  height: '24px',
-                  border: '2px solid white',
-                  borderRadius: '4px'
-                }}></div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontWeight: '600' }}>Multiple Choice</div>
-                  <div style={{ fontSize: '14px', opacity: 0.9 }}>Allow multiple selections</div>
+                <div className="question-icon checkbox"></div>
+                <div className="text-left">
+                  <div className="font-semibold">Multiple Choice</div>
+                  <div className="text-sm opacity-90">Allow multiple selections</div>
                 </div>
               </button>
               
               <button
                 onClick={() => addQuestion("radiogroup")}
-                style={{
-                  width: '100%',
-                  backgroundColor: '#10b981',
-                  color: 'white',
-                  padding: '16px 24px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '12px',
-                  fontSize: '16px',
-                  fontWeight: '500',
-                  transition: 'background-color 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#059669'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
+                className="custom-popup-button green"
               >
-                <div style={{
-                  width: '24px',
-                  height: '24px',
-                  border: '2px solid white',
-                  borderRadius: '50%'
-                }}></div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontWeight: '600' }}>Single Choice</div>
-                  <div style={{ fontSize: '14px', opacity: 0.9 }}>Allow only one selection</div>
+                <div className="question-icon radio"></div>
+                <div className="text-left">
+                  <div className="font-semibold">Single Choice</div>
+                  <div className="text-sm opacity-90">Allow only one selection</div>
                 </div>
               </button>
             </div>
@@ -436,27 +360,22 @@ const CreateModule = () => {
                 setShowPopup(false);
                 setAddQuestionContext(null);
               }}
-              style={{
-                marginTop: '24px',
-                width: '100%',
-                color: '#6b7280',
-                fontSize: '14px',
-                fontWeight: '500',
-                padding: '8px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                cursor: 'pointer',
-                borderRadius: '4px',
-                transition: 'background-color 0.2s'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              className="custom-popup-cancel"
             >
               Cancel
             </button>
           </div>
         </div>
       )}
+
+      {/* Condition Builder Modal */}
+      <ConditionBuilder
+        modules={availableModules}
+        onConditionChange={setModuleCondition}
+        currentCondition={moduleCondition}
+        isOpen={showConditionBuilder}
+        onClose={() => setShowConditionBuilder(false)}
+      />
     </div>
   );
 };
